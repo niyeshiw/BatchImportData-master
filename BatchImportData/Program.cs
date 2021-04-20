@@ -68,7 +68,7 @@ namespace BatchImportData
                 }
                 Console.WriteLine("正在导入...");
             }
-            ImportExcel(d1);
+            ImportExcel(d1, 0);
         }
 
         private static void ImportExcel(DirectoryInfo directoryInfo, int language)
@@ -127,7 +127,7 @@ namespace BatchImportData
                     }
                     Document conclusionWord = new Document(subFilePath);
 
-
+                    // 主表
                     SqlCommand cmd = new SqlCommand();
                     cmd.Connection = conn;
                     cmd.Transaction = tran;
@@ -141,6 +141,7 @@ END
 ELSE
     SELECT Id FROM StudyReports WHERE StudyNo = @StudyNo AND [Language] = @Language
 ";
+                    cmd.Parameters.Clear();
                     cmd.Parameters.Add(new SqlParameter("@StudyNo", studyNo));
                     cmd.Parameters.Add(new SqlParameter("@Language", language));
                     cmd.Parameters.Add(new SqlParameter("@TypeBodyContact", bodyContact));
@@ -151,8 +152,32 @@ ELSE
                     cmd.Parameters.Add(wordPara);
                     int pid = (int)cmd.ExecuteScalar();
 
-                    cmd.CommandText = @"
+                    // 子表
+                    cmd.CommandText = @"INSERT INTO [dbo].[Chemicals]([IsDeleted],[CreationTime],
+[Casrn],[TiValue],[Details],[GroupName],[State],[PDE],[ChemicalName],[StudyReportId],[Word])
+VALUES(0,GETDATE(),@Casrn, @TiValue,@Details, @GroupName, 0, @PDE, @ChemicalName, @PID, @Word);
 ";
+                    cmd.Parameters.Clear();
+                    cmd.Parameters.Add(new SqlParameter("@Casrn", cASRN));
+                    cmd.Parameters.Add(new SqlParameter("@TiValue", tiValue));
+                    cmd.Parameters.Add(new SqlParameter("@Details", remark));
+                    cmd.Parameters.Add(new SqlParameter("@GroupName", groupName));
+                    cmd.Parameters.Add(new SqlParameter("@PDE", pDE));
+                    cmd.Parameters.Add(new SqlParameter("@ChemicalName", chemicalName));
+                    cmd.Parameters.Add(new SqlParameter("@PID", pid));
+                    wordPara.Value = conclusionWord.ToByte();
+                    cmd.Parameters.Add(new SqlParameter("@Word", wordPara));
+                    cmd.ExecuteNonQuery();
+
+                    // 引文
+                    if (!string.IsNullOrEmpty(references))
+                    {
+                        foreach (var item in references.Split("\f"))
+                        {
+
+                        }
+                    }
+                    WordUtil.GenerateCitationFile(subFilePath);
 
                 }
             }

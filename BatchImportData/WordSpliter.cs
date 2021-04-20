@@ -56,32 +56,20 @@ namespace BatchImportData
             return res;
         }
 
-        public static void GenerateCitationFile(string text)
+        public static Document GenerateCitationFile(string text)
         {
             Document doc = new Document("template.docx");
             var sources = doc.GetSource();
 
-            var nodeListStr = text.Split("\f");
-            foreach (var str in nodeListStr)
-            {
-                var loadDoc = new XmlDocument();
-                loadDoc.LoadXml(str);
+            var loadDoc = new XmlDocument();
+            loadDoc.LoadXml(text);
 
-                
-                sources.AppendChild(sources.OwnerDocument.ImportNode(loadDoc.DocumentElement, true));
-            }
+            sources.AppendChild(sources.OwnerDocument.ImportNode(loadDoc.DocumentElement, true));
             MemoryStream ms = new MemoryStream();
             sources.OwnerDocument.Save(ms);
             doc.CustomXmlParts[0].Data = ms.ToArray();
 
-            // 更新书录
-            var bibliography = (FieldBibliography)doc.Range.Fields.First(p => p.Type == Aspose.Words.Fields.FieldType.FieldBibliography);
-            bibliography.Update();
-            doc.UpdateFields();
-            
-
-            doc.Save("Citation.docx");
-           
+            return doc;
         }
 
         private static string GetCitationXml(XmlNode source, string identification)
