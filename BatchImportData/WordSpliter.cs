@@ -14,15 +14,32 @@ namespace BatchImportData
 {
     public static class WordUtil
     {
-        public static void Split(List<Paragraph> paragraphs, string fileName)
+        public static void Split(List<Paragraph> paragraphs, Document doc, string fileName)
         {
-            Document document = new Document();
+            Document document = new Document("template.docx");
 
             foreach (Paragraph p in paragraphs)
             {
                 var node = document.ImportNode(p, true);
                 document.FirstSection.Body.ChildNodes.Add(node);
             }
+            var citations = ExtractCitation(paragraphs, doc);
+            if (citations != null)
+            {
+                var sources = document.GetSource();
+                foreach (var xml in citations)
+                {
+                    var loadDoc = new XmlDocument();
+                    loadDoc.LoadXml(xml);
+
+                    sources.AppendChild(sources.OwnerDocument.ImportNode(loadDoc.DocumentElement, true));
+                }
+                MemoryStream ms = new MemoryStream();
+                sources.OwnerDocument.Save(ms);
+                document.CustomXmlParts[0].Data = ms.ToArray();
+            }
+            
+
             document.Save(fileName);
         }
 
@@ -59,15 +76,22 @@ namespace BatchImportData
         public static Document GenerateCitationFile(string text)
         {
             Document doc = new Document("template.docx");
-            var sources = doc.GetSource();
+            try
+            {
+                var sources = doc.GetSource();
 
-            var loadDoc = new XmlDocument();
-            loadDoc.LoadXml(text);
+                var loadDoc = new XmlDocument();
+                loadDoc.LoadXml(text);
 
-            sources.AppendChild(sources.OwnerDocument.ImportNode(loadDoc.DocumentElement, true));
-            MemoryStream ms = new MemoryStream();
-            sources.OwnerDocument.Save(ms);
-            doc.CustomXmlParts[0].Data = ms.ToArray();
+                sources.AppendChild(sources.OwnerDocument.ImportNode(loadDoc.DocumentElement, true));
+                MemoryStream ms = new MemoryStream();
+                sources.OwnerDocument.Save(ms);
+                doc.CustomXmlParts[0].Data = ms.ToArray();
+            }
+            catch (Exception)
+            {
+                throw;
+            }
 
             return doc;
         }

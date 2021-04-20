@@ -6,11 +6,14 @@ using System.Threading;
 using Aspose.Cells;
 using Aspose.Words;
 using System.Data.SqlClient;
+using System.Linq;
 
 namespace BatchImportData
 {
     class Program
     {
+        public const string SplitFileName = "split"; 
+
         static void Main(string[] args)
         {
             Console.Clear();
@@ -36,46 +39,45 @@ namespace BatchImportData
             //Console.WriteLine("程序运行结束...........");
             Console.WriteLine("End of program...........");
             Console.ReadLine();
-            
         }
 
         private static void Import()
         {
-            string filePathCase1 = Utils.GetSettings("FileDir:EN_Case_1");
-            string filePathCase2 = Utils.GetSettings("FileDir:EN_Case_2");
-            string filePathCase3 = Utils.GetSettings("FileDir:CN_Case_1");
-            string filePathCase4 = Utils.GetSettings("FileDir:CN_Case_2");
-            DirectoryInfo d1 = new DirectoryInfo(filePathCase1);
-            DirectoryInfo d2 = new DirectoryInfo(filePathCase2);
-            DirectoryInfo d3 = new DirectoryInfo(filePathCase3);
-            DirectoryInfo d4 = new DirectoryInfo(filePathCase4);
-            if (d1.GetFiles("*.xls").Length > 1 ||
-                d2.GetFiles("*.xls").Length > 1 ||
-                d3.GetFiles("*.xls").Length > 1 ||
-                d4.GetFiles("*.xls").Length > 1)
+            var allCase = GetAllCase().ToList();
+            if (allCase.Any(p => p.GetFiles("*.xls").Length > 0))
             {
                 Console.WriteLine("检测到存在历史文件,是否要执行导入到数据库操作? (Y/N)");
                 string result = Console.ReadLine().Trim();
                 if (!result.Equals("y", StringComparison.OrdinalIgnoreCase))
                 {
+                    Console.WriteLine("放弃导入数据库操作");
                     return;
                 }
                 Console.WriteLine("确认执行导入操作? (Y/N)");
                 result = Console.ReadLine().Trim();
                 if (!result.Equals("y", StringComparison.OrdinalIgnoreCase))
                 {
+                    Console.WriteLine("放弃导入数据库操作");
                     return;
                 }
-                Console.WriteLine("正在导入...");
+                Console.WriteLine("开始导入...");
+                ImportExcel(allCase[0], 0);
+                ImportExcel(allCase[1], 0);
+                ImportExcel(allCase[2], 1);
+                ImportExcel(allCase[3], 1);
+                Console.WriteLine("导入完成,按Enter退出程序");
+                Console.ReadLine();
+                Environment.Exit(0);
             }
-            ImportExcel(d1, 0);
         }
 
         private static void ImportExcel(DirectoryInfo directoryInfo, int language)
         {
+            Console.WriteLine("正在处理{0}", directoryInfo.Name);
             var files = directoryInfo.GetFiles("*.xls");
             if (files.Length == 0)
             {
+                Console.WriteLine("{0}, 没有检测到excel文件", directoryInfo.Name);
                 return;
             }
             var file = files[0];
@@ -86,7 +88,8 @@ namespace BatchImportData
             var firstCell = cells.Find("FileName", null);
             int rowIndex = firstCell.Row + 1;
             int colIndex = firstCell.Column;
-
+            int totalRowCount = cells.Rows.Count - firstCell.Row - 1;
+            Console.WriteLine("{0}, 预计共{1}条数据", directoryInfo.Name, totalRowCount);
             SqlConnection conn = new SqlConnection(Utils.GetSettings("ConnectionStr"));
             try
             {
@@ -95,7 +98,7 @@ namespace BatchImportData
             catch (Exception ex)
             {
                 Console.WriteLine(ex.Message);
-                Console.WriteLine("导入失败,按任意键退出程序");
+                Console.WriteLine("导入失败,按Enter退出程序");
                 Console.ReadLine();
                 Environment.Exit(0);
             }
@@ -105,8 +108,9 @@ namespace BatchImportData
                 string preFilePath = null;
                 byte[] sourceWord = null;
 
-                for (; rowIndex < 10000; rowIndex++)
+                for (; !IsNullOrBlank(cells.GetRow(rowIndex)); rowIndex++)
                 {
+                    Console.WriteLine("{0}, 预计共{1}条数据,当前第{2}条...", directoryInfo.Name, totalRowCount, rowIndex - firstCell.Row);
                     string filePath = cells[rowIndex, colIndex].StringValue;
                     string subFilePath = cells[rowIndex, colIndex + 1].StringValue;
                     string studyNo = cells[rowIndex, colIndex + 2].StringValue;
@@ -123,9 +127,9 @@ namespace BatchImportData
 
                     if (preFilePath != filePath)
                     {
-                        sourceWord = new Document(filePath).ToByte();
+                        sourceWord = new Document(Path.Combine(directoryInfo.FullName,filePath)).ToByte();
                     }
-                    Document conclusionWord = new Document(subFilePath);
+                    Document conclusionWord = new Document(Path.Combine(directoryInfo.FullName, subFilePath));
 
                     // 主表
                     SqlCommand cmd = new SqlCommand();
@@ -150,12 +154,24 @@ ELSE
                     var wordPara = new SqlParameter("@Word", SqlDbType.Image);
                     wordPara.Value = sourceWord;
                     cmd.Parameters.Add(wordPara);
-                    int pid = (int)cmd.ExecuteScalar();
+                    decimal pid = Convert.ToDecimal(cmd.ExecuteScalar());
 
                     // 子表
+                    SqlDataAdapter sqlDataAdapter = new SqlDataAdapter($"SELECT Id FROM [dbo].[Chemicals] WHERE IsDeleted = 0 AND Casrn = @Casrn AND ChemicalName = @ChemicalName AND StudyReportId =@StudyReportId", conn);
+                    sqlDataAdapter.SelectCommand.Transaction = tran;
+                    sqlDataAdapter.SelectCommand.Parameters.Add(new SqlParameter("Casrn", cASRN));
+                    sqlDataAdapter.SelectCommand.Parameters.Add(new SqlParameter("ChemicalName", chemicalName));
+                    sqlDataAdapter.SelectCommand.Parameters.Add(new SqlParameter("StudyReportId", pid));
+                    DataTable dt = new DataTable();
+                    if (dt.Rows.Count > 0)
+                    {
+                        continue;
+                    }
+
                     cmd.CommandText = @"INSERT INTO [dbo].[Chemicals]([IsDeleted],[CreationTime],
 [Casrn],[TiValue],[Details],[GroupName],[State],[PDE],[ChemicalName],[StudyReportId],[Word])
 VALUES(0,GETDATE(),@Casrn, @TiValue,@Details, @GroupName, 0, @PDE, @ChemicalName, @PID, @Word);
+SELECT SCOPE_IDENTITY()
 ";
                     cmd.Parameters.Clear();
                     cmd.Parameters.Add(new SqlParameter("@Casrn", cASRN));
@@ -165,52 +181,103 @@ VALUES(0,GETDATE(),@Casrn, @TiValue,@Details, @GroupName, 0, @PDE, @ChemicalName
                     cmd.Parameters.Add(new SqlParameter("@PDE", pDE));
                     cmd.Parameters.Add(new SqlParameter("@ChemicalName", chemicalName));
                     cmd.Parameters.Add(new SqlParameter("@PID", pid));
+                    wordPara = new SqlParameter("@Word", SqlDbType.Image);
+                    cmd.Parameters.Add(wordPara);
                     wordPara.Value = conclusionWord.ToByte();
-                    cmd.Parameters.Add(new SqlParameter("@Word", wordPara));
-                    cmd.ExecuteNonQuery();
 
-                    // 引文
-                    if (!string.IsNullOrEmpty(references))
+                    decimal cid = Convert.ToDecimal(cmd.ExecuteScalar());
+
+                    var citations = conclusionWord.GetChildNodes(NodeType.Paragraph, true).Cast<Paragraph>().ToList();
+                    if (citations.Count > 0)
                     {
-                        foreach (var item in references.Split("\f"))
+                        var strList = WordUtil.ExtractCitation(citations, conclusionWord);
+                        if (strList.Count > 0) //引文
                         {
-
+                            foreach (var item in strList)
+                            {
+                                string content = item.Trim();
+                                sqlDataAdapter = new SqlDataAdapter($"SELECT Id FROM [dbo].[Citations] WHERE [CitationContent] =@CitationContent", conn);
+                                sqlDataAdapter.SelectCommand.Transaction = tran;
+                                sqlDataAdapter.SelectCommand.Parameters.Add(new SqlParameter("CitationContent", content));
+                                dt = new DataTable();
+                                sqlDataAdapter.Fill(dt);
+                                decimal citationId = 0;
+                                if (dt.Rows.Count == 1)
+                                {
+                                    citationId = Convert.ToDecimal(dt.Rows[0]["Id"]);
+                                }
+                                else // 插入引文
+                                {
+                                    // 生成引文
+                                    var citationWord = WordUtil.GenerateCitationFile(item);
+                                    cmd.Parameters.Clear();
+                                    cmd.CommandText = @"
+INSERT INTO [dbo].[Citations]([CitationContent],[Word])VALUES(@CitationContent,@Word)
+SELECT SCOPE_IDENTITY()";
+                                    cmd.Parameters.Add(new SqlParameter("@CitationContent", content));
+                                    wordPara = new SqlParameter("@Word", SqlDbType.Image);
+                                    cmd.Parameters.Add(wordPara);
+                                    wordPara.Value = citationWord.ToByte();
+                                    citationId = Convert.ToDecimal(cmd.ExecuteScalar());
+                                }
+                                //插入关系表
+                                cmd.Parameters.Clear();
+                                cmd.CommandText = "INSERT INTO [dbo].[ChemicalCitationMappings]([ChemicalId],[CitationId])VALUES(@ChemicalId,@CitationId)";
+                                cmd.Parameters.Add(new SqlParameter("@ChemicalId", cid));
+                                cmd.Parameters.Add(new SqlParameter("@CitationId", citationId));
+                                int cnt = cmd.ExecuteNonQuery();
+                            }
                         }
-                    }
-                    WordUtil.GenerateCitationFile(subFilePath);
 
+                    }
                 }
+                tran.Commit();
             }
             catch (Exception ex)
             {
                 tran.Rollback();
                 Console.WriteLine(ex.Message);
-                Console.WriteLine("导入失败,按任意键退出程序");
+                Console.WriteLine("导入失败,按Enter退出程序");
                 Console.ReadLine();
                 Environment.Exit(0);
             }
-            
-            
-
-            
 
         }
+
         private static void Clear()
         {
-            var directory = Utils.GetSettings("FileDir:SplitFolder");
-            DirectoryInfo directoryInfo = new DirectoryInfo(directory);
-            foreach (var file in directoryInfo.GetFileSystemInfos())
+            foreach (var dirInfo in GetAllCase())
             {
-                if (file is DirectoryInfo)            //判断是否文件夹
+                DirectoryInfo directoryInfo = new DirectoryInfo(Path.Combine(dirInfo.FullName, SplitFileName));
+                if (!directoryInfo.Exists)
                 {
-                    DirectoryInfo subdir = new DirectoryInfo(file.FullName);
-                    subdir.Delete(true);          //删除子目录和文件
+                    continue;
                 }
-                else
+                foreach (var file in directoryInfo.GetFileSystemInfos())
                 {
-                    File.Delete(file.FullName);      //删除指定文件
+                    if (file is DirectoryInfo)            //判断是否文件夹
+                    {
+                        DirectoryInfo subdir = new DirectoryInfo(file.FullName);
+                        subdir.Delete(true);          //删除子目录和文件
+                    }
+                    else
+                    {
+                        File.Delete(file.FullName);      //删除指定文件
+                    }
                 }
             }
+        }
+
+        private static IEnumerable<DirectoryInfo> GetAllCase()
+        {
+            string filePathCase1 = Utils.GetSettings("FileDir:EN_Case_1");
+            string filePathCase2 = Utils.GetSettings("FileDir:EN_Case_2");
+            string filePathCase3 = Utils.GetSettings("FileDir:CN_Case_1");
+            string filePathCase4 = Utils.GetSettings("FileDir:CN_Case_2");
+            yield return new DirectoryInfo(filePathCase1);
+            yield return new DirectoryInfo(filePathCase2);
+            yield return new DirectoryInfo(filePathCase3);
+            yield return new DirectoryInfo(filePathCase4);
         }
 
         //执行任务1
@@ -305,6 +372,11 @@ VALUES(0,GETDATE(),@Casrn, @TiValue,@Details, @GroupName, 0, @PDE, @ChemicalName
                 ExportExcelHandler.ExecuteExportExcelData(filePathCase4, "化合物集合2.xls", dt);
                 Console.WriteLine("Successfully write to Excel...........");
             }
+        }
+
+        public static bool IsNullOrBlank(Row row)
+        {
+            return row == null || row.IsBlank;
         }
     }
 }

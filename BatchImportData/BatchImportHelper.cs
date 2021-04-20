@@ -416,42 +416,6 @@ namespace BatchImportData
                         LogFileHelper.WriteTextLog("成功读取化合物描述！", file.Name);
                     #endregion
 
-                    #region Step 5: 获取报告引文 废弃
-                    //LogFileHelper.WriteTextLog("开始读取报告引文！", file.Name);
-                    //Paragraph referenceTitle = doc.FindParagraphByTitleName("references");
-                    ////Paragraph referenceTitle = doc.FindReferenceTitle();
-                    //if (referenceTitle != null)
-                    //{
-                    //    Paragraph nextReference = referenceTitle.NextParagraph();
-                    //    string references = string.Empty;
-                    //    while (nextReference != null)
-                    //    {
-                    //        if (nextReference.ParagraphFormat.OutlineLevel != OutlineLevel.BodyText
-                    //            || nextReference.ParagraphFormat.Style.Font.Bold) break;
-
-                    //        var linkRunList = nextReference.GetChildNodes(NodeType.Run, true);
-                    //        string tempStr = string.Empty;
-                    //        foreach(var run in linkRunList)
-                    //        {
-                    //            if (!run.GetText().Contains("HYPERLINK"))
-                    //                tempStr += run.GetText();
-                    //        }
-                    //        references += Utils.GetReplaceMethod(tempStr) + "\n";
-                    //        nextReference = nextReference.NextParagraph();
-                    //    }
-                    //    if(references != string.Empty)
-                    //        LogFileHelper.WriteTextLog("成功读取报告引文！", file.Name);
-                    //    else
-                    //        LogFileHelper.WriteTextLog("未获取报告引文！", file.Name);
-                    //    if (listParas.Count() > 0)
-                    //    {
-                    //        listParas[0].References = references;
-                    //    }
-                    //}
-                    //else
-                    //    LogFileHelper.WriteTextLog("未获取报告引文标题段落！", file.Name);
-                    #endregion
-
                     #region Step 6: 整理已获取的数据
                     foreach (var item in listParas)
                     {
@@ -516,36 +480,27 @@ namespace BatchImportData
                                 }
                             }
                         }
-                        if (dicvalue.Length > 50)
-                        {
-                            model.StarIndex = Utils.Left(dicvalue, 20);      //取段落中前20个字符
-                            model.EndIndex = Utils.Right(dicvalue, 20);     //取段落中后20个字符
-                        }
-                        else
-                        {
-                            model.StarIndex = dicvalue;
-                            model.EndIndex = dicvalue;
-                        }
                         model.DicValue = dicvalue;
-                        string folderName = Path.Combine(Utils.GetSettings("FileDir:SplitFolder"), model.FileName);
+                        string folderName = Path.Combine(theFolder.FullName, Program.SplitFileName, model.FileName);
                         if (!Directory.Exists(folderName))
                         {
                             Directory.CreateDirectory(folderName);
                         }
-                        model.SubFilePath = Path.Combine(folderName, Guid.NewGuid().ToString() + ".docx");
-                        WordUtil.Split(paragraphs, model.SubFilePath);
+                        string fileName = Path.Combine(Program.SplitFileName, model.FileName, Guid.NewGuid().ToString() + ".docx");
+                        model.SubFilePath = fileName;
+                        WordUtil.Split(paragraphs, doc, Path.Combine(theFolder.FullName, fileName));
                         var citations = WordUtil.ExtractCitation(paragraphs, doc);
                         if (citations != null)
                         {
-                            model.References = string.Join("\r\f", citations);
+                            model.References = string.Join("\r", citations);
                         }
-                        WordUtil.GenerateCitationFile(model.References);
                         newDataList.Add(model);            //拼接到新的集合中，打印出来
                     }
                     #endregion
                 }
                 catch (Exception ex)
                 {
+                    Console.WriteLine("发生异常"+ex.Message);
                     errorcount++;
                     LogFileHelper.WriteTextLog(ex.Message, file.Name);
                     continue;
