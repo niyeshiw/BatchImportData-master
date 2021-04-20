@@ -38,7 +38,7 @@ namespace BatchImportData
 
             //Console.WriteLine("程序运行结束...........");
             Console.WriteLine("End of program...........");
-            Console.ReadLine();
+            Console.ReadKey();
         }
 
         private static void Import()

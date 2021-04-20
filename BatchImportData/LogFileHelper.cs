@@ -32,5 +32,33 @@ namespace BatchImportData
             sw.WriteLine(str.ToString());
             sw.Close();
         }
+
+        public static void WriteInfo(string message)
+        {
+            WriteLog("info", message);
+        }
+
+        public static void WriteError(string message)
+        {
+            WriteLog("error", message);
+        }
+
+        public static void WriteLog(string category, string message)
+        {
+            string path = AppDomain.CurrentDomain.BaseDirectory + $"Log\\{category}\\";
+            if (!Directory.Exists(path))
+                Directory.CreateDirectory(path);
+            string fileName = DateTime.Today.ToString("yyyy-MM-dd") + ".txt";
+            string fullPath = path + fileName;
+            if (!File.Exists(fullPath))
+            {
+                File.Create(fullPath);
+            }
+            var sw = File.AppendText(fullPath);
+            sw.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {message}");
+            sw.Close();
+
+        }
+
     }
 }

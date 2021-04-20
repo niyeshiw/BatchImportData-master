@@ -42,7 +42,7 @@ namespace BatchImportData
                     bool isSuccess; // 每步骤执行状态
                     string message; // 执行信息
 
-                    LogFileHelper.WriteTextLog("开始处理文件：" + file.Name, file.Name);
+                    LogFileHelper.WriteInfo("开始处理文件：" + file.Name);
                     Document doc = new Document(file.FullName);
 
                     #region Step 1: 读取表格编号
